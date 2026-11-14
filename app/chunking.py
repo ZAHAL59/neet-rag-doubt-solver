@@ -26,11 +26,41 @@ def _subject_from_name(name: str) -> str:
     return SUBJECTS.get(prefix, "General")
 
 
+SUPPORTED = {".md", ".txt", ".pdf", ".docx"}
+
+
+def _read_docx(path: Path) -> str:
+    """Extract text from a Word file, turning Heading 1/2 styles into Markdown headings."""
+    import zipfile
+    from xml.etree import ElementTree
+
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    with zipfile.ZipFile(path) as z:
+        root = ElementTree.fromstring(z.read("word/document.xml"))
+    lines = []
+    for para in root.iter(f"{{{ns['w']}}}p"):
+        text = "".join(t.text or "" for t in para.iter(f"{{{ns['w']}}}t")).strip()
+        if not text:
+            continue
+        style = para.find("w:pPr/w:pStyle", ns)
+        name = (style.get(f"{{{ns['w']}}}val") if style is not None else "") or ""
+        if name.lower() in {"title", "heading1"}:
+            lines.append(f"# {text}")
+        elif name.lower().startswith("heading"):
+            lines.append(f"## {text}")
+        else:
+            lines.append(text)
+    return "\n".join(lines)
+
+
 def _read(path: Path) -> str:
-    if path.suffix.lower() == ".pdf":
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
         from pypdf import PdfReader
 
         return "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
+    if suffix == ".docx":
+        return _read_docx(path)
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
@@ -90,7 +120,7 @@ def chunk_document(path: Path, chunk_words: int = 120, overlap: int = 30) -> lis
 
 
 def load_chunks(notes_dir: Path, chunk_words: int = 120, overlap: int = 30) -> list[Chunk]:
-    files = sorted(p for p in notes_dir.rglob("*") if p.suffix.lower() in {".md", ".txt", ".pdf"})
+    files = sorted(p for p in notes_dir.rglob("*") if p.suffix.lower() in SUPPORTED)
     chunks: list[Chunk] = []
     for path in files:
         chunks.extend(chunk_document(path, chunk_words, overlap))

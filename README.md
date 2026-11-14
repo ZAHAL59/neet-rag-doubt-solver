@@ -21,6 +21,7 @@ question ─► query embedding ─► top-k similarity search ─────�
 - **Grounded generation:** the LLM may only use the retrieved passages and must cite each fact as `[1]`, `[2]`. The API returns only the passages the answer actually cites.
 - **Guardrail against hallucination:** if no chunk passes the similarity threshold, the app refuses without calling the LLM, which also saves cost.
 - **Subject filter:** restrict search to Biology, Physics or Chemistry.
+- **Admin uploads:** a password-protected admin page (`/admin`) where staff upload PDF, Word (.docx), Markdown or text notes. Text is extracted (Word headings become sections), chunked, embedded and appended to the live index, so students can ask about it immediately. Documents can be listed and deleted.
 - **Offline mode:** with no API key it falls back to TF-IDF retrieval and an extractive answerer, so it runs and tests anywhere.
 - **Evaluation:** a labelled question set measures retrieval hit@k, MRR, answer accuracy and refusal accuracy.
 
@@ -53,11 +54,19 @@ curl -X POST localhost:8000/api/ask -H "Content-Type: application/json" \
      -d '{"question": "Why is O2 paramagnetic?", "subject": "Chemistry"}'
 ```
 
-Tests (offline, no key needed): `pytest -q`
+Tests (offline, no key needed): `pytest -q` (19 tests)
 
 ## Use your own notes
 
 Drop `.md`, `.txt` or `.pdf` files into `data/notes/` and run `python -m app.ingest` again. Name files with a subject prefix (`biology_…`, `physics_…`, `chemistry_…`) so the subject filter works.
+
+## Admin: add notes from the browser
+
+1. Set `ADMIN_TOKEN` (any long password) in your environment or on Render.
+2. Open `/admin`, enter the password, choose a file and its subject, and click **Upload and index**.
+3. The response shows the chapter, sections and chunk count. Ask a question in the student chat to check it.
+
+**Keeping uploads on free hosting.** Free hosts like Render wipe the disk when the server restarts. Set `GITHUB_TOKEN` (a fine-grained token with *Contents: read and write* on this repo only) and `GITHUB_REPO` (`owner/repo`), and every upload or delete is also committed to `data/notes/`. The next deploy rebuilds the index with it, so nothing is lost.
 
 ## API
 
@@ -66,6 +75,9 @@ Drop `.md`, `.txt` or `.pdf` files into `data/notes/` and run `python -m app.ing
 | POST | `/api/ask` | `{question, subject?}` → `{answer, sources[], in_scope, latency_ms, provider}` |
 | GET | `/api/stats` | Chunks, files, subjects, embedder and LLM in use |
 | GET | `/api/health` | Readiness check |
+| GET | `/api/admin/documents` | List indexed documents (header `X-Admin-Token`) |
+| POST | `/api/admin/documents` | Upload `file` + `subject` (multipart, header `X-Admin-Token`) |
+| DELETE | `/api/admin/documents/{file}` | Remove a document from the index (header `X-Admin-Token`) |
 | GET | `/docs` | Interactive Swagger docs |
 
 ## Deploy
@@ -80,10 +92,12 @@ app/
   embeddings.py   Gemini and local TF-IDF embedders
   vectorstore.py  FAISS index + metadata, save/load
   ingest.py       CLI to build the index
+  library.py      admin uploads: extract, chunk, embed, append; delete; optional GitHub persistence
   rag.py          retrieve → threshold → generate → cited sources
   llm.py          Gemini / Claude / extractive answerers, grounded prompt
   main.py         FastAPI app
 web/index.html    chat UI with citations and source excerpts
+web/admin.html    admin page: upload, list and delete documents
 eval/             labelled questions + evaluation script
 tests/            offline pytest suite
 ```

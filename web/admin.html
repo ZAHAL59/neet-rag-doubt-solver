@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin · NEET Doubt Solver</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--ink:#0f172a;--muted:#475569;--line:#e2e8f0;--accent:#2563eb;--ok:#15803d;--ok-bg:#dcfce7;--err:#b91c1c;--err-bg:#fee2e2}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1220;--card:#111c33;--ink:#e8edf7;--muted:#a5b2c8;--line:#25324d;--accent:#7aa7ff;--ok:#6ee7a8;--ok-bg:rgba(34,197,94,.15);--err:#fca5a5;--err-bg:rgba(239,68,68,.15)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:24px 16px 48px}
+h1{margin:0;font-size:26px;letter-spacing:-.02em}
+h2{font-size:19px;margin:0 0 12px}
+p.sub{margin:4px 0 20px;color:var(--muted)}
+a{color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:20px}
+label{display:block;font-weight:600;font-size:14px;margin:0 0 6px}
+input,select,button{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;min-height:44px;padding:0 12px}
+input[type=file]{padding:9px 12px;width:100%}
+.row{display:grid;grid-template-columns:1fr 180px;gap:12px;margin-bottom:14px}
+.inline{display:flex;gap:8px;flex-wrap:wrap}
+.inline input{flex:1;min-width:200px}
+button{cursor:pointer;font-weight:600}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;padding:0 20px}
+button.del{color:var(--err);border-color:var(--line);min-height:36px;font-size:14px}
+button:disabled{opacity:.6;cursor:wait}
+.msg{margin-top:14px;padding:10px 14px;border-radius:10px;display:none}
+.msg.ok{display:block;background:var(--ok-bg);color:var(--ok)}
+.msg.err{display:block;background:var(--err-bg);color:var(--err)}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:13px;color:var(--muted);font-weight:600}
+td small{color:var(--muted)}
+.hint{font-size:13px;color:var(--muted);margin-top:8px}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+@media (max-width:600px){.row{grid-template-columns:1fr}th:nth-child(3),td:nth-child(3){display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Knowledge base admin</h1>
+  <p class="sub">Upload study notes. The text is extracted, split into chunks, embedded and added to the search index, so students can ask about it straight away. <a href="/">Open the student chat</a></p>
+
+  <div class="card">
+    <h2>Admin password</h2>
+    <div class="inline">
+      <input id="token" type="password" placeholder="Enter the admin password" autocomplete="current-password" aria-label="Admin password">
+      <button id="unlock" type="button">Unlock</button>
+    </div>
+    <div class="msg" id="authMsg" role="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Upload a document</h2>
+    <form id="upload">
+      <div class="row">
+        <div><label for="file">File (PDF, Word .docx, Markdown or text, up to 15 MB)</label><input id="file" type="file" accept=".pdf,.docx,.md,.txt" required></div>
+        <div><label for="subject">Subject</label><select id="subject" required><option>Biology</option><option>Physics</option><option>Chemistry</option></select></div>
+      </div>
+      <button class="primary" id="go">Upload and index</button>
+      <p class="hint">Uploading a file with the same name and subject replaces the old version. Use headings in Word (Heading 1, Heading 2) for the best section citations. Scanned PDFs need OCR first.</p>
+      <div class="msg" id="upMsg" role="status"></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Documents in the knowledge base</h2>
+    <div id="docs"><p class="hint">Enter the admin password to see documents.</p></div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let token='';
+try{token=sessionStorage.getItem('neet_admin')||''}catch(e){}
+$('token').value=token;
+function storageNote(s){return s==='saved to GitHub'?' Saved permanently to GitHub.':s==='not configured'?' Note: permanent storage is not set up, so this upload is lost when the server restarts.':s?` Storage: ${s}.`:''}
+function show(el,ok,text){el.className='msg '+(ok?'ok':'err');el.textContent=text}
+async function api(path,opts={}){
+  opts.headers=Object.assign({'X-Admin-Token':token},opts.headers||{});
+  const r=await fetch(path,opts);const d=await r.json().catch(()=>({detail:r.statusText}));
+  if(!r.ok)throw new Error(d.detail||r.statusText);return d;
+}
+async function loadDocs(){
+  try{
+    const d=await api('/api/admin/documents');
+    if(!d.documents.length){$('docs').innerHTML='<p class="hint">No documents yet.</p>';return}
+    $('docs').innerHTML='<table><thead><tr><th>Chapter</th><th>Subject</th><th>File</th><th>Chunks</th><th></th></tr></thead><tbody>'+
+      d.documents.map(x=>`<tr><td>${esc(x.chapter)}<br><small>${x.sections} sections</small></td><td>${esc(x.subject)}</td><td><small>${esc(x.file)}</small></td><td>${x.chunks}</td><td><button class="del" data-f="${esc(x.file)}">Delete</button></td></tr>`).join('')+'</tbody></table>';
+    show($('authMsg'),true,`Unlocked. ${d.documents.length} documents in the knowledge base.`);
+  }catch(e){show($('authMsg'),false,e.message);$('docs').innerHTML='<p class="hint">Enter the admin password to see documents.</p>'}
+}
+$('unlock').onclick=()=>{token=$('token').value.trim();try{sessionStorage.setItem('neet_admin',token)}catch(e){};loadDocs()};
+$('token').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('unlock').click()}});
+$('upload').addEventListener('submit',async e=>{
+  e.preventDefault();const f=$('file').files[0];if(!f)return;
+  const fd=new FormData();fd.append('file',f);fd.append('subject',$('subject').value);
+  $('go').disabled=true;show($('upMsg'),true,'Extracting text, chunking and embedding…');
+  try{
+    const d=await api('/api/admin/documents',{method:'POST',body:fd});
+    show($('upMsg'),true,`${d.replaced?'Replaced':'Added'} “${d.chapter}”: ${d.sections} sections, ${d.chunks} chunks indexed. The knowledge base now has ${d.total_chunks} chunks.${storageNote(d.storage)}`);
+    $('file').value='';loadDocs();
+  }catch(err){show($('upMsg'),false,err.message)}
+  finally{$('go').disabled=false}
+});
+$('docs').addEventListener('click',async e=>{
+  const b=e.target.closest('button.del');if(!b)return;
+  if(!confirm(`Delete ${b.dataset.f}? Students will no longer get answers from it.`))return;
+  b.disabled=true;
+  try{const d=await api('/api/admin/documents/'+encodeURIComponent(b.dataset.f),{method:'DELETE'});show($('upMsg'),true,`Deleted ${d.file} (${d.removed_chunks} chunks removed).${storageNote(d.storage)}`);loadDocs()}
+  catch(err){show($('upMsg'),false,err.message);b.disabled=false}
+});
+if(token)loadDocs();
+</script>
+</body>
+</html>

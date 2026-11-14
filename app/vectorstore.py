@@ -39,6 +39,24 @@ class VectorStore:
                 break
         return results
 
+    def add(self, vectors: np.ndarray, chunks: list[Chunk]) -> None:
+        """Append new chunks to the index (used when an admin uploads a document)."""
+        self.index.add(vectors)
+        self.chunks.extend(c.to_dict() for c in chunks)
+
+    def remove_source(self, source: str) -> int:
+        """Drop every chunk of one file and rebuild the flat index from the remaining vectors."""
+        keep = [i for i, c in enumerate(self.chunks) if c["source"] != source]
+        removed = len(self.chunks) - len(keep)
+        if removed:
+            vectors = self.index.reconstruct_n(0, self.index.ntotal)
+            index = faiss.IndexFlatIP(self.index.d)
+            if keep:
+                index.add(vectors[keep])
+            self.index = index
+            self.chunks = [self.chunks[i] for i in keep]
+        return removed
+
     def save(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         faiss.write_index(self.index, str(directory / "index.faiss"))
