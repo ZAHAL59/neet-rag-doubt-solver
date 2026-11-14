@@ -9,7 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .config import settings
@@ -30,6 +31,12 @@ def get_solver() -> DoubtSolver:
     if not (settings.index_dir / "index.faiss").exists():
         raise HTTPException(503, "Index not built yet. Run: python -m app.ingest")
     return DoubtSolver()
+
+
+@app.exception_handler(Exception)
+async def on_error(request: Request, exc: Exception) -> JSONResponse:
+    # Always return JSON so the chat page can show a readable message.
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"[:300]})
 
 
 @app.get("/", include_in_schema=False)

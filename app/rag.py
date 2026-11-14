@@ -1,6 +1,7 @@
 """The RAG pipeline: retrieve relevant chunks, refuse when nothing is relevant, otherwise generate a cited answer."""
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -11,6 +12,7 @@ from .embeddings import GeminiEmbedder, LocalEmbedder
 from .llm import generate
 from .vectorstore import VectorStore
 
+logger = logging.getLogger("neet_rag")
 REFUSAL = "I couldn't find this in the study notes."
 
 
@@ -51,7 +53,13 @@ class DoubtSolver:
             return Answer(question, REFUSAL, [], False, int((time.perf_counter() - start) * 1000), self.cfg.llm_provider)
 
         passages = [c for c, _ in relevant]
-        text = generate(question, passages, self.cfg.llm_provider, self.cfg.gemini_model, self.cfg.claude_model)
+        provider = self.cfg.llm_provider
+        try:
+            text = generate(question, passages, provider, self.cfg.gemini_model, self.cfg.claude_model)
+        except Exception as exc:  # LLM outage, quota or bad key: fall back instead of failing
+            logger.warning("LLM call failed (%s); using extractive answer", exc)
+            text = generate(question, passages, "none", "", "")
+            provider = f"{provider} unavailable, extractive fallback"
         in_scope = REFUSAL.lower() not in text.lower()
 
         # Return only the passages the answer actually cites (all of them if it cites none).
@@ -75,5 +83,5 @@ class DoubtSolver:
             sources if in_scope else [],
             in_scope,
             int((time.perf_counter() - start) * 1000),
-            self.cfg.llm_provider,
+            provider,
         )

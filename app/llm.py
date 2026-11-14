@@ -26,7 +26,8 @@ def _gemini(prompt: str, model: str) -> str:
     from google import genai
     from google.genai import types
 
-    client = genai.Client()
+    # System instructions are only supported on the v1beta API, so pin it explicitly.
+    client = genai.Client(http_options=types.HttpOptions(api_version="v1beta"))
     response = client.models.generate_content(
         model=model,
         contents=prompt,
